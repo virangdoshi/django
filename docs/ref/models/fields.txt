@@ -569,12 +569,10 @@ A field to store raw binary data. It can be assigned :class:`bytes`,
 By default, ``BinaryField`` sets :attr:`~Field.editable` to ``False``, in which
 case it can't be included in a :class:`~django.forms.ModelForm`.
 
-``BinaryField`` has one extra optional argument:
-
 .. attribute:: BinaryField.max_length
 
-    The maximum length (in bytes) of the field. The maximum length is enforced
-    in Django's validation using
+    Optional. The maximum length (in bytes) of the field. The maximum length is
+    enforced in Django's validation using
     :class:`~django.core.validators.MaxLengthValidator`.
 
 .. admonition:: Abusing ``BinaryField``
@@ -607,7 +605,7 @@ For large amounts of text, use :class:`~django.db.models.TextField`.
 
 The default form widget for this field is a :class:`~django.forms.TextInput`.
 
-:class:`CharField` has two extra arguments:
+:class:`CharField` has the following extra arguments:
 
 .. attribute:: CharField.max_length
 
@@ -713,7 +711,7 @@ A fixed-precision decimal number, represented in Python by a
 :class:`~decimal.Decimal` instance. It validates the input using
 :class:`~django.core.validators.DecimalValidator`.
 
-Has two **required** arguments:
+Has the following **required** arguments:
 
 .. attribute:: DecimalField.max_digits
 
@@ -773,7 +771,7 @@ A :class:`CharField` that checks that the value is a valid email address using
 ``FileField``
 -------------
 
-.. class:: FileField(upload_to=None, max_length=100, **options)
+.. class:: FileField(upload_to='', storage=None, max_length=100, **options)
 
 A file-upload field.
 
@@ -781,7 +779,7 @@ A file-upload field.
     The ``primary_key`` argument isn't supported and will raise an error if
     used.
 
-Has two optional arguments:
+Has the following optional arguments:
 
 .. attribute:: FileField.upload_to
 
@@ -1153,8 +1151,8 @@ validates that the uploaded object is a valid image.
 In addition to the special attributes that are available for :class:`FileField`,
 an :class:`ImageField` also has ``height`` and ``width`` attributes.
 
-To facilitate querying on those attributes, :class:`ImageField` has two extra
-optional arguments:
+To facilitate querying on those attributes, :class:`ImageField` has the
+following optional arguments:
 
 .. attribute:: ImageField.height_field
 
@@ -1460,7 +1458,7 @@ Relationships defined this way on :ref:`abstract models
 concrete model and are not relative to the abstract model's ``app_label``:
 
 .. code-block:: python
-    :caption: products/models.py
+    :caption: ``products/models.py``
 
     from django.db import models
 
@@ -1471,7 +1469,7 @@ concrete model and are not relative to the abstract model's ``app_label``:
             abstract = True
 
 .. code-block:: python
-    :caption: production/models.py
+    :caption: ``production/models.py``
 
     from django.db import models
     from products.models import AbstractCar
@@ -1612,7 +1610,7 @@ The possible values for :attr:`~ForeignKey.on_delete` are found in
     Set the :class:`ForeignKey` to the value passed to
     :func:`~django.db.models.SET()`, or if a callable is passed in,
     the result of calling it. In most cases, passing a callable will be
-    necessary to avoid executing queries at the time your models.py is
+    necessary to avoid executing queries at the time your ``models.py`` is
     imported::
 
         from django.conf import settings

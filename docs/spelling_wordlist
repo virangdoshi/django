@@ -20,7 +20,6 @@ args
 async
 atomicity
 auth
-autoclobber
 autocommit
 autocomplete
 autocompletion
@@ -57,7 +56,6 @@ Bjørn
 blazingly
 boilerplatish
 Bokmål
-bolded
 Bonham
 bookmarklet
 bookmarklets
@@ -97,14 +95,12 @@ contenttypes
 contrib
 coroutine
 coroutines
-covariance
 criticals
 cron
 crontab
 cryptographic
 cryptographically
 csrfmiddlewaretoken
-css
 csv
 ctime
 Ctrl
@@ -140,7 +136,6 @@ dimensioned
 discoverable
 Disqus
 distro
-Django
 djangoproject
 dm
 docstring
@@ -153,7 +148,6 @@ Dreamweaver
 drilldown
 dropdown
 dropdowns
-drupal
 Dunck
 editability
 encodings
@@ -176,7 +170,7 @@ filesystem
 filesystems
 flatpage
 flatpages
-Flatpages
+focusable
 fooapp
 formatter
 formatters
@@ -201,7 +195,6 @@ GiST
 Googol
 Greenhill
 gunicorn
-gz
 GZip
 gzipped
 hardcode
@@ -219,10 +212,8 @@ hostname
 hostnames
 hstore
 html
-http
 https
 Hypercorn
-ie
 ies
 iframe
 Igbo
@@ -234,8 +225,6 @@ init
 inlines
 instantiation
 interdependencies
-interoperability
-iOS
 ipsum
 IPv
 IPython
@@ -316,8 +305,6 @@ multitenancy
 multithreaded
 multithreading
 multivalued
-myapp
-mysite
 mysql
 mysqlclient
 naïve
@@ -365,22 +352,22 @@ Pinterest
 plaintext
 pluggable
 pluralizations
-po
 pooler
 postfix
 postgis
 postgres
 postgresql
-pq
 pre
 precisions
 precomputation
 preconfigured
+preescaped
 prefetch
 prefetched
 prefetches
 prefetching
 preload
+preloaded
 prepend
 prepended
 prepending
@@ -399,7 +386,6 @@ pseudocode
 psycopg
 Punycode
 Puthraya
-py
 pyformat
 pysqlite
 pythonic
@@ -409,7 +395,6 @@ querysets
 querystring
 queueing
 Quickstart
-QUnit
 quoteless
 Radziej
 rasters
@@ -425,12 +410,11 @@ recomputation
 recursed
 redeclare
 redirections
-redis
 redisplay
 redisplayed
 redisplaying
 redisplays
-refactorings
+reenable
 referer
 referers
 reflow
@@ -469,7 +453,6 @@ serializability
 serializable
 serializer
 serializers
-sessionid
 shapefile
 shapefiles
 sharding
@@ -477,7 +460,6 @@ sitewide
 sliceable
 SMTP
 solaris
-Solr
 sortable
 Spectre
 Springmeyer
@@ -486,9 +468,6 @@ stacktrace
 stateful
 staticfile
 staticfiles
-stderr
-stdlib
-stdout
 storages
 stylesheet
 stylesheets
@@ -545,7 +524,6 @@ titlecase
 tokenized
 toolkits
 toolset
-Tox
 trac
 tracebacks
 transactional
@@ -558,7 +536,6 @@ trigram
 trigrams
 Turkmen
 tv
-ul
 umask
 unannotated
 unapplied
@@ -579,7 +556,6 @@ unhashable
 unioning
 uniterated
 unlocalized
-unmaintained
 unmanaged
 unparseable
 unparsed
@@ -607,15 +583,11 @@ UTF
 util
 utils
 Uvicorn
-uwsgi
 uWSGI
 validator
 validators
-validsite
-VARCHAR
 variadic
 vendored
-viewable
 virtualized
 whitespace
 whitespaces
@@ -627,6 +599,5 @@ wrappable
 wsgi
 www
 xe
-xgettext
 xxxxx
 Zope
