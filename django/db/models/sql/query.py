@@ -198,6 +198,7 @@ class Query(BaseExpression):
     select_for_update_of = ()
     select_for_no_key_update = False
     select_related = False
+    has_select_fields = False
     # Arbitrary limit for select_related to prevents infinite recursion.
     max_depth = 5
     # Holds the selects defined by a call to values() or values_list()
@@ -262,12 +263,6 @@ class Query(BaseExpression):
             return getattr(select, "target", None) or select.field
         elif len(self.annotation_select) == 1:
             return next(iter(self.annotation_select.values())).output_field
-
-    @property
-    def has_select_fields(self):
-        return bool(
-            self.select or self.annotation_select_mask or self.extra_select_mask
-        )
 
     @cached_property
     def base_table(self):
@@ -561,7 +556,7 @@ class Query(BaseExpression):
     def has_filters(self):
         return self.where
 
-    def exists(self, using, limit=True):
+    def exists(self, limit=True):
         q = self.clone()
         if not (q.distinct and q.is_sliced):
             if q.group_by is True:
@@ -573,11 +568,8 @@ class Query(BaseExpression):
                 q.set_group_by(allow_aliases=False)
             q.clear_select_clause()
         if q.combined_queries and q.combinator == "union":
-            limit_combined = connections[
-                using
-            ].features.supports_slicing_ordering_in_compound
             q.combined_queries = tuple(
-                combined_query.exists(using, limit=limit_combined)
+                combined_query.exists(limit=False)
                 for combined_query in q.combined_queries
             )
         q.clear_ordering(force=True)
@@ -718,7 +710,61 @@ class Query(BaseExpression):
         self.order_by = rhs.order_by or self.order_by
         self.extra_order_by = rhs.extra_order_by or self.extra_order_by
 
-    def deferred_to_data(self, target):
+    def _get_defer_select_mask(self, opts, mask, select_mask=None):
+        if select_mask is None:
+            select_mask = {}
+        select_mask[opts.pk] = {}
+        # All concrete fields that are not part of the defer mask must be
+        # loaded. If a relational field is encountered it gets added to the
+        # mask for it be considered if `select_related` and the cycle continues
+        # by recursively caling this function.
+        for field in opts.concrete_fields:
+            field_mask = mask.pop(field.name, None)
+            if field_mask is None:
+                select_mask.setdefault(field, {})
+            elif field_mask:
+                if not field.is_relation:
+                    raise FieldError(next(iter(field_mask)))
+                field_select_mask = select_mask.setdefault(field, {})
+                related_model = field.remote_field.model._meta.concrete_model
+                self._get_defer_select_mask(
+                    related_model._meta, field_mask, field_select_mask
+                )
+        # Remaining defer entries must be references to reverse relationships.
+        # The following code is expected to raise FieldError if it encounters
+        # a malformed defer entry.
+        for field_name, field_mask in mask.items():
+            if filtered_relation := self._filtered_relations.get(field_name):
+                relation = opts.get_field(filtered_relation.relation_name)
+                field_select_mask = select_mask.setdefault((field_name, relation), {})
+                field = relation.field
+            else:
+                field = opts.get_field(field_name).field
+                field_select_mask = select_mask.setdefault(field, {})
+            related_model = field.model._meta.concrete_model
+            self._get_defer_select_mask(
+                related_model._meta, field_mask, field_select_mask
+            )
+        return select_mask
+
+    def _get_only_select_mask(self, opts, mask, select_mask=None):
+        if select_mask is None:
+            select_mask = {}
+        select_mask[opts.pk] = {}
+        # Only include fields mentioned in the mask.
+        for field_name, field_mask in mask.items():
+            field = opts.get_field(field_name)
+            field_select_mask = select_mask.setdefault(field, {})
+            if field_mask:
+                if not field.is_relation:
+                    raise FieldError(next(iter(field_mask)))
+                related_model = field.remote_field.model._meta.concrete_model
+                self._get_only_select_mask(
+                    related_model._meta, field_mask, field_select_mask
+                )
+        return select_mask
+
+    def get_select_mask(self):
         """
         Convert the self.deferred_loading data structure to an alternate data
         structure, describing the field that *will* be loaded. This is used to
@@ -726,80 +772,19 @@ class Query(BaseExpression):
         QuerySet class to work out which fields are being initialized on each
         model. Models that have all their fields included aren't mentioned in
         the result, only those that have field restrictions in place.
-
-        The "target" parameter is the instance that is populated (in place).
         """
         field_names, defer = self.deferred_loading
         if not field_names:
-            return
-        orig_opts = self.get_meta()
-        seen = {}
-        must_include = {orig_opts.concrete_model: {orig_opts.pk}}
+            return {}
+        mask = {}
         for field_name in field_names:
-            parts = field_name.split(LOOKUP_SEP)
-            cur_model = self.model._meta.concrete_model
-            opts = orig_opts
-            for name in parts[:-1]:
-                old_model = cur_model
-                if name in self._filtered_relations:
-                    name = self._filtered_relations[name].relation_name
-                source = opts.get_field(name)
-                if is_reverse_o2o(source):
-                    cur_model = source.related_model
-                else:
-                    cur_model = source.remote_field.model
-                opts = cur_model._meta
-                # Even if we're "just passing through" this model, we must add
-                # both the current model's pk and the related reference field
-                # (if it's not a reverse relation) to the things we select.
-                if not is_reverse_o2o(source):
-                    must_include[old_model].add(source)
-                add_to_dict(must_include, cur_model, opts.pk)
-            field = opts.get_field(parts[-1])
-            is_reverse_object = field.auto_created and not field.concrete
-            model = field.related_model if is_reverse_object else field.model
-            model = model._meta.concrete_model
-            if model == opts.model:
-                model = cur_model
-            if not is_reverse_o2o(field):
-                add_to_dict(seen, model, field)
-
+            part_mask = mask
+            for part in field_name.split(LOOKUP_SEP):
+                part_mask = part_mask.setdefault(part, {})
+        opts = self.get_meta()
         if defer:
-            # We need to load all fields for each model, except those that
-            # appear in "seen" (for all models that appear in "seen"). The only
-            # slight complexity here is handling fields that exist on parent
-            # models.
-            workset = {}
-            for model, values in seen.items():
-                for field in model._meta.local_fields:
-                    if field not in values:
-                        m = field.model._meta.concrete_model
-                        add_to_dict(workset, m, field)
-            for model, values in must_include.items():
-                # If we haven't included a model in workset, we don't add the
-                # corresponding must_include fields for that model, since an
-                # empty set means "include all fields". That's why there's no
-                # "else" branch here.
-                if model in workset:
-                    workset[model].update(values)
-            for model, fields in workset.items():
-                target[model] = {f.attname for f in fields}
-        else:
-            for model, values in must_include.items():
-                if model in seen:
-                    seen[model].update(values)
-                else:
-                    # As we've passed through this model, but not explicitly
-                    # included any fields, we have to make sure it's mentioned
-                    # so that only the "must include" fields are pulled in.
-                    seen[model] = values
-            # Now ensure that every model in the inheritance chain is mentioned
-            # in the parent list. Again, it must be mentioned to ensure that
-            # only "must include" fields are pulled in.
-            for model in orig_opts.get_parent_list():
-                seen.setdefault(model, set())
-            for model, fields in seen.items():
-                target[model] = {f.attname for f in fields}
+            return self._get_defer_select_mask(opts, mask)
+        return self._get_only_select_mask(opts, mask)
 
     def table_alias(self, table_name, create=False, filtered_relation=None):
         """
@@ -1162,12 +1147,14 @@ class Query(BaseExpression):
             if col.alias in self.external_aliases
         ]
 
-    def get_group_by_cols(self, alias=None):
-        if alias:
-            return [Ref(alias, self)]
+    def get_group_by_cols(self, wrapper=None):
+        # If wrapper is referenced by an alias for an explicit GROUP BY through
+        # values() a reference to this expression and not the self must be
+        # returned to ensure external column references are not grouped against
+        # as well.
         external_cols = self.get_external_cols()
         if any(col.possibly_multivalued for col in external_cols):
-            return [self]
+            return [wrapper or self]
         return external_cols
 
     def as_sql(self, compiler, connection):
@@ -1178,6 +1165,8 @@ class Query(BaseExpression):
             and not connection.features.ignores_unnecessary_order_by_in_subqueries
         ):
             self.clear_ordering(force=False)
+            for query in self.combined_queries:
+                query.clear_ordering(force=False)
         sql, params = self.get_compiler(connection=connection).as_sql()
         if self.subquery:
             sql = "(%s)" % sql
@@ -1288,10 +1277,6 @@ class Query(BaseExpression):
         # supports both transform and lookup for the name.
         lookup_class = lhs.get_lookup(lookup_name)
         if not lookup_class:
-            if lhs.field.is_relation:
-                raise FieldError(
-                    "Related Field got invalid lookup: {}".format(lookup_name)
-                )
             # A lookup wasn't found. Try to interpret the name as a transform
             # and do an Exact lookup against it.
             lhs = self.try_transform(lhs, lookup_name)
@@ -1460,12 +1445,6 @@ class Query(BaseExpression):
             can_reuse.update(join_list)
 
         if join_info.final_field.is_relation:
-            # No support for transforms for relational fields
-            num_lookups = len(lookups)
-            if num_lookups > 1:
-                raise FieldError(
-                    "Related Field got invalid lookup: {}".format(lookups[0])
-                )
             if len(targets) == 1:
                 col = self._get_col(targets[0], join_info.final_field, alias)
             else:
@@ -1839,6 +1818,7 @@ class Query(BaseExpression):
             final_transformer = functools.partial(
                 transform, name=name, previous=final_transformer
             )
+            final_transformer.has_transforms = True
         # Then, add the path to the query's joins. Note that we can't trim
         # joins at this stage - we will need the information about join type
         # of the trimmed joins.
@@ -2239,8 +2219,8 @@ class Query(BaseExpression):
         primary key, and the query would be equivalent, the optimization
         will be made automatically.
         """
-        # Column names from JOINs to check collisions with aliases.
         if allow_aliases:
+            # Column names from JOINs to check collisions with aliases.
             column_names = set()
             seen_models = set()
             for join in list(self.alias_map.values())[1:]:  # Skip base table.
@@ -2250,13 +2230,31 @@ class Query(BaseExpression):
                         {field.column for field in model._meta.local_concrete_fields}
                     )
                     seen_models.add(model)
-
+            if self.values_select:
+                # If grouping by aliases is allowed assign selected values
+                # aliases by moving them to annotations.
+                group_by_annotations = {}
+                values_select = {}
+                for alias, expr in zip(self.values_select, self.select):
+                    if isinstance(expr, Col):
+                        values_select[alias] = expr
+                    else:
+                        group_by_annotations[alias] = expr
+                self.annotations = {**group_by_annotations, **self.annotations}
+                self.append_annotation_mask(group_by_annotations)
+                self.select = tuple(values_select.values())
+                self.values_select = tuple(values_select)
         group_by = list(self.select)
-        if self.annotation_select:
-            for alias, annotation in self.annotation_select.items():
-                if not allow_aliases or alias in column_names:
-                    alias = None
-                group_by_cols = annotation.get_group_by_cols(alias=alias)
+        for alias, annotation in self.annotation_select.items():
+            if not (group_by_cols := annotation.get_group_by_cols()):
+                continue
+            if (
+                allow_aliases
+                and alias not in column_names
+                and not annotation.contains_aggregate
+            ):
+                group_by.append(Ref(alias, annotation))
+            else:
                 group_by.extend(group_by_cols)
         self.group_by = tuple(group_by)
 
@@ -2389,6 +2387,7 @@ class Query(BaseExpression):
         self.select_related = False
         self.clear_deferred_loading()
         self.clear_select_fields()
+        self.has_select_fields = True
 
         if fields:
             field_names = []
@@ -2580,25 +2579,6 @@ def get_order_dir(field, default="ASC"):
     return field, dirn[0]
 
 
-def add_to_dict(data, key, value):
-    """
-    Add "value" to the set of values for "key", whether or not "key" already
-    exists.
-    """
-    if key in data:
-        data[key].add(value)
-    else:
-        data[key] = {value}
-
-
-def is_reverse_o2o(field):
-    """
-    Check if the given field is reverse-o2o. The field is expected to be some
-    sort of relation field or related object.
-    """
-    return field.is_relation and field.one_to_one and not field.concrete
-
-
 class JoinPromoter:
     """
     A class to abstract away join promotion problems for complex filter
@@ -2655,7 +2635,7 @@ class JoinPromoter:
             # to rel_a would remove a valid match from the query. So, we need
             # to promote any existing INNER to LOUTER (it is possible this
             # promotion in turn will be demoted later on).
-            if self.effective_connector == "OR" and votes < self.num_children:
+            if self.effective_connector == OR and votes < self.num_children:
                 to_promote.add(table)
             # If connector is AND and there is a filter that can match only
             # when there is a joinable row, then use INNER. For example, in
@@ -2667,8 +2647,8 @@ class JoinPromoter:
             #     (rel_a__col__icontains=Alex | rel_a__col__icontains=Russell)
             # then if rel_a doesn't produce any rows, the whole condition
             # can't match. Hence we can safely use INNER join.
-            if self.effective_connector == "AND" or (
-                self.effective_connector == "OR" and votes == self.num_children
+            if self.effective_connector == AND or (
+                self.effective_connector == OR and votes == self.num_children
             ):
                 to_demote.add(table)
             # Finally, what happens in cases where we have:

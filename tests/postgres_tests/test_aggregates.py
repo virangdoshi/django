@@ -8,6 +8,7 @@ from django.db.models import (
     Q,
     Subquery,
     Value,
+    Window,
 )
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast, Concat, Substr
@@ -668,6 +669,31 @@ class TestGeneralAggregate(PostgreSQLTestCase):
             qs.first().integers,
             inner_qs.values_list("integer_field", flat=True),
         )
+
+    def test_window(self):
+        self.assertCountEqual(
+            AggregateTestModel.objects.annotate(
+                integers=Window(
+                    expression=ArrayAgg("char_field"),
+                    partition_by=F("integer_field"),
+                )
+            ).values("integers", "char_field"),
+            [
+                {"integers": ["Foo1", "Foo3"], "char_field": "Foo1"},
+                {"integers": ["Foo1", "Foo3"], "char_field": "Foo3"},
+                {"integers": ["Foo2"], "char_field": "Foo2"},
+                {"integers": ["Foo4"], "char_field": "Foo4"},
+            ],
+        )
+
+    def test_values_list(self):
+        tests = [ArrayAgg("integer_field"), JSONBAgg("integer_field")]
+        for aggregation in tests:
+            with self.subTest(aggregation=aggregation):
+                self.assertCountEqual(
+                    AggregateTestModel.objects.values_list(aggregation),
+                    [([0],), ([1],), ([2],), ([0],)],
+                )
 
 
 class TestAggregateDistinct(PostgreSQLTestCase):

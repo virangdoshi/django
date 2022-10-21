@@ -2,6 +2,7 @@ import logging
 import operator
 from datetime import datetime
 
+from django.conf import settings
 from django.db.backends.ddl_references import (
     Columns,
     Expressions,
@@ -268,7 +269,9 @@ class BaseDatabaseSchemaEditor:
         sql = self.sql_create_table % {
             "table": self.quote_name(model._meta.db_table),
             "definition": ", ".join(
-                constraint for constraint in (*column_sqls, *constraints) if constraint
+                str(constraint)
+                for constraint in (*column_sqls, *constraints)
+                if constraint
             ),
         }
         if model._meta.db_tablespace:
@@ -636,6 +639,8 @@ class BaseDatabaseSchemaEditor:
         # It might not actually have a column behind it
         if definition is None:
             return
+        if col_type_suffix := field.db_type_suffix(connection=self.connection):
+            definition += f" {col_type_suffix}"
         # Check constraints can go on the column SQL here
         db_params = field.db_parameters(connection=self.connection)
         if db_params["check"]:
@@ -949,7 +954,7 @@ class BaseDatabaseSchemaEditor:
         if old_collation != new_collation:
             # Collation change handles also a type change.
             fragment = self._alter_column_collation_sql(
-                model, new_field, new_type, new_collation
+                model, new_field, new_type, new_collation, old_field
             )
             actions.append(fragment)
         # Type change?
@@ -1078,6 +1083,7 @@ class BaseDatabaseSchemaEditor:
                     new_rel.field,
                     rel_type,
                     rel_collation,
+                    old_rel.field,
                 )
                 other_actions = []
             else:
@@ -1225,7 +1231,9 @@ class BaseDatabaseSchemaEditor:
             [],
         )
 
-    def _alter_column_collation_sql(self, model, new_field, new_type, new_collation):
+    def _alter_column_collation_sql(
+        self, model, new_field, new_type, new_collation, old_field
+    ):
         return (
             self.sql_alter_column_collate
             % {
@@ -1306,6 +1314,8 @@ class BaseDatabaseSchemaEditor:
         if db_tablespace is None:
             if len(fields) == 1 and fields[0].db_tablespace:
                 db_tablespace = fields[0].db_tablespace
+            elif settings.DEFAULT_INDEX_TABLESPACE:
+                db_tablespace = settings.DEFAULT_INDEX_TABLESPACE
             elif model._meta.db_tablespace:
                 db_tablespace = model._meta.db_tablespace
         if db_tablespace is not None:

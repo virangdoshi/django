@@ -869,10 +869,8 @@ class FormattingTests(SimpleTestCase):
             self.assertEqual(1, get_format("FIRST_DAY_OF_WEEK"))
             self.assertEqual(",", get_format("DECIMAL_SEPARATOR"))
             self.assertEqual("10:15", time_format(self.t))
-            self.assertEqual("31 de desembre de 2009", date_format(self.d))
-            self.assertEqual(
-                "1 d'abril de 2009", date_format(datetime.date(2009, 4, 1))
-            )
+            self.assertEqual("31 desembre de 2009", date_format(self.d))
+            self.assertEqual("1 abril de 2009", date_format(datetime.date(2009, 4, 1)))
             self.assertEqual(
                 "desembre del 2009", date_format(self.d, "YEAR_MONTH_FORMAT")
             )
@@ -891,10 +889,8 @@ class FormattingTests(SimpleTestCase):
                 self.assertEqual("66666,666", localize(self.n))
                 self.assertEqual("99999,999", localize(self.f))
                 self.assertEqual("10000", localize(self.long))
-                self.assertEqual("31 de desembre de 2009", localize(self.d))
-                self.assertEqual(
-                    "31 de desembre de 2009 a les 20:50", localize(self.dt)
-                )
+                self.assertEqual("31 desembre de 2009", localize(self.d))
+                self.assertEqual("31 desembre de 2009 a les 20:50", localize(self.dt))
 
             with self.settings(USE_THOUSAND_SEPARATOR=True):
                 self.assertEqual("66.666,666", Template("{{ n }}").render(self.ctxt))
@@ -933,10 +929,10 @@ class FormattingTests(SimpleTestCase):
                 self.assertEqual("66666,666", Template("{{ n }}").render(self.ctxt))
                 self.assertEqual("99999,999", Template("{{ f }}").render(self.ctxt))
                 self.assertEqual(
-                    "31 de desembre de 2009", Template("{{ d }}").render(self.ctxt)
+                    "31 desembre de 2009", Template("{{ d }}").render(self.ctxt)
                 )
                 self.assertEqual(
-                    "31 de desembre de 2009 a les 20:50",
+                    "31 desembre de 2009 a les 20:50",
                     Template("{{ dt }}").render(self.ctxt),
                 )
                 self.assertEqual(
@@ -1319,7 +1315,7 @@ class FormattingTests(SimpleTestCase):
             with translation.override("de-at", deactivate=True):
                 self.assertEqual("66.666,666", Template("{{ n }}").render(self.ctxt))
             with translation.override("es-us", deactivate=True):
-                self.assertEqual("31 de Diciembre de 2009", date_format(self.d))
+                self.assertEqual("31 de diciembre de 2009", date_format(self.d))
 
     def test_localized_input(self):
         """
@@ -1758,55 +1754,32 @@ class MiscTests(SimpleTestCase):
                 )
 
     def test_parse_literal_http_header(self):
-        """
-        Now test that we parse a literal HTTP header correctly.
-        """
-        g = get_language_from_request
-        r = self.rf.get("/")
-        r.COOKIES = {}
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "pt-br"}
-        self.assertEqual("pt-br", g(r))
-
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "pt"}
-        self.assertEqual("pt", g(r))
-
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "es,de"}
-        self.assertEqual("es", g(r))
-
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "es-ar,de"}
-        self.assertEqual("es-ar", g(r))
-
-        # This test assumes there won't be a Django translation to a US
-        # variation of the Spanish language, a safe assumption. When the
-        # user sets it as the preferred language, the main 'es'
-        # translation should be selected instead.
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "es-us"}
-        self.assertEqual(g(r), "es")
-
-        # This tests the following scenario: there isn't a main language (zh)
-        # translation of Django but there is a translation to variation (zh-hans)
-        # the user sets zh-hans as the preferred language, it should be selected
-        # by Django without falling back nor ignoring it.
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "zh-hans,de"}
-        self.assertEqual(g(r), "zh-hans")
-
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "NL"}
-        self.assertEqual("nl", g(r))
-
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "fy"}
-        self.assertEqual("fy", g(r))
-
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "ia"}
-        self.assertEqual("ia", g(r))
-
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "sr-latn"}
-        self.assertEqual("sr-latn", g(r))
-
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "zh-hans"}
-        self.assertEqual("zh-hans", g(r))
-
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "zh-hant"}
-        self.assertEqual("zh-hant", g(r))
+        tests = [
+            ("pt-br", "pt-br"),
+            ("pt", "pt"),
+            ("es,de", "es"),
+            ("es-a,de", "es"),
+            # There isn't a Django translation to a US variation of the Spanish
+            # language, a safe assumption. When the user sets it as the
+            # preferred language, the main 'es' translation should be selected
+            # instead.
+            ("es-us", "es"),
+            # There isn't a main language (zh) translation of Django but there
+            # is a translation to variation (zh-hans) the user sets zh-hans as
+            # the preferred language, it should be selected without falling
+            # back nor ignoring it.
+            ("zh-hans,de", "zh-hans"),
+            ("NL", "nl"),
+            ("fy", "fy"),
+            ("ia", "ia"),
+            ("sr-latn", "sr-latn"),
+            ("zh-hans", "zh-hans"),
+            ("zh-hant", "zh-hant"),
+        ]
+        for header, expected in tests:
+            with self.subTest(header=header):
+                request = self.rf.get("/", HTTP_ACCEPT_LANGUAGE=header)
+                self.assertEqual(get_language_from_request(request), expected)
 
     @override_settings(
         LANGUAGES=[
@@ -1826,23 +1799,19 @@ class MiscTests(SimpleTestCase):
         refs #18419 -- this is explicitly for browser compatibility
         """
         g = get_language_from_request
-        r = self.rf.get("/")
-        r.COOKIES = {}
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "zh-cn,en"}
-        self.assertEqual(g(r), "zh-hans")
+        request = self.rf.get("/", HTTP_ACCEPT_LANGUAGE="zh-cn,en")
+        self.assertEqual(g(request), "zh-hans")
 
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "zh-tw,en"}
-        self.assertEqual(g(r), "zh-hant")
+        request = self.rf.get("/", HTTP_ACCEPT_LANGUAGE="zh-tw,en")
+        self.assertEqual(g(request), "zh-hant")
 
     def test_special_fallback_language(self):
         """
         Some languages may have special fallbacks that don't follow the simple
         'fr-ca' -> 'fr' logic (notably Chinese codes).
         """
-        r = self.rf.get("/")
-        r.COOKIES = {}
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "zh-my,en"}
-        self.assertEqual(get_language_from_request(r), "zh-hans")
+        request = self.rf.get("/", HTTP_ACCEPT_LANGUAGE="zh-my,en")
+        self.assertEqual(get_language_from_request(request), "zh-hans")
 
     def test_subsequent_code_fallback_language(self):
         """
@@ -1857,54 +1826,46 @@ class MiscTests(SimpleTestCase):
             ("zh-hant-tw", "zh-hant"),
             ("zh-hant-SG", "zh-hant"),
         ]
-        r = self.rf.get("/")
-        r.COOKIES = {}
         for value, expected in tests:
             with self.subTest(value=value):
-                r.META = {"HTTP_ACCEPT_LANGUAGE": f"{value},en"}
-                self.assertEqual(get_language_from_request(r), expected)
+                request = self.rf.get("/", HTTP_ACCEPT_LANGUAGE=f"{value},en")
+                self.assertEqual(get_language_from_request(request), expected)
 
     def test_parse_language_cookie(self):
-        """
-        Now test that we parse language preferences stored in a cookie correctly.
-        """
         g = get_language_from_request
-        r = self.rf.get("/")
-        r.COOKIES = {settings.LANGUAGE_COOKIE_NAME: "pt-br"}
-        r.META = {}
-        self.assertEqual("pt-br", g(r))
+        request = self.rf.get("/")
+        request.COOKIES[settings.LANGUAGE_COOKIE_NAME] = "pt-br"
+        self.assertEqual("pt-br", g(request))
 
-        r.COOKIES = {settings.LANGUAGE_COOKIE_NAME: "pt"}
-        r.META = {}
-        self.assertEqual("pt", g(r))
+        request.COOKIES[settings.LANGUAGE_COOKIE_NAME] = "pt"
+        self.assertEqual("pt", g(request))
 
-        r.COOKIES = {settings.LANGUAGE_COOKIE_NAME: "es"}
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "de"}
-        self.assertEqual("es", g(r))
+        request = self.rf.get("/", HTTP_ACCEPT_LANGUAGE="de")
+        request.COOKIES[settings.LANGUAGE_COOKIE_NAME] = "es"
+        self.assertEqual("es", g(request))
 
-        # This test assumes there won't be a Django translation to a US
-        # variation of the Spanish language, a safe assumption. When the
-        # user sets it as the preferred language, the main 'es'
-        # translation should be selected instead.
-        r.COOKIES = {settings.LANGUAGE_COOKIE_NAME: "es-us"}
-        r.META = {}
-        self.assertEqual(g(r), "es")
-
-        # This tests the following scenario: there isn't a main language (zh)
-        # translation of Django but there is a translation to variation (zh-hans)
-        # the user sets zh-hans as the preferred language, it should be selected
-        # by Django without falling back nor ignoring it.
-        r.COOKIES = {settings.LANGUAGE_COOKIE_NAME: "zh-hans"}
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "de"}
-        self.assertEqual(g(r), "zh-hans")
+        # There isn't a Django translation to a US variation of the Spanish
+        # language, a safe assumption. When the user sets it as the preferred
+        # language, the main 'es' translation should be selected instead.
+        request = self.rf.get("/")
+        request.COOKIES[settings.LANGUAGE_COOKIE_NAME] = "es-us"
+        self.assertEqual(g(request), "es")
+        # There isn't a main language (zh) translation of Django but there is a
+        # translation to variation (zh-hans) the user sets zh-hans as the
+        # preferred language, it should be selected without falling back nor
+        # ignoring it.
+        request = self.rf.get("/", HTTP_ACCEPT_LANGUAGE="de")
+        request.COOKIES[settings.LANGUAGE_COOKIE_NAME] = "zh-hans"
+        self.assertEqual(g(request), "zh-hans")
 
     @override_settings(
         USE_I18N=True,
         LANGUAGES=[
             ("en", "English"),
+            ("ar-dz", "Algerian Arabic"),
             ("de", "German"),
             ("de-at", "Austrian German"),
-            ("pt-br", "Portuguese (Brazil)"),
+            ("pt-BR", "Portuguese (Brazil)"),
         ],
     )
     def test_get_supported_language_variant_real(self):
@@ -1915,8 +1876,11 @@ class MiscTests(SimpleTestCase):
         self.assertEqual(g("de-at"), "de-at")
         self.assertEqual(g("de-ch"), "de")
         self.assertEqual(g("pt-br"), "pt-br")
+        self.assertEqual(g("pt-BR"), "pt-BR")
         self.assertEqual(g("pt"), "pt-br")
         self.assertEqual(g("pt-pt"), "pt-br")
+        self.assertEqual(g("ar-dz"), "ar-dz")
+        self.assertEqual(g("ar-DZ"), "ar-DZ")
         with self.assertRaises(LookupError):
             g("pt", strict=True)
         with self.assertRaises(LookupError):
@@ -1946,7 +1910,6 @@ class MiscTests(SimpleTestCase):
         LANGUAGES=[
             ("en", "English"),
             ("en-latn-us", "Latin English"),
-            ("en-Latn-US", "BCP 47 case format"),
             ("de", "German"),
             ("de-1996", "German, orthography of 1996"),
             ("de-at", "Austrian German"),
@@ -1970,6 +1933,7 @@ class MiscTests(SimpleTestCase):
             ("/de/", "de"),
             ("/de-1996/", "de-1996"),
             ("/de-at/", "de-at"),
+            ("/de-AT/", "de-AT"),
             ("/de-ch/", "de"),
             ("/de-ch-1901/", "de-ch-1901"),
             ("/de-simple-page-test/", None),
@@ -1993,12 +1957,10 @@ class MiscTests(SimpleTestCase):
         previously valid should not be used (#14170).
         """
         g = get_language_from_request
-        r = self.rf.get("/")
-        r.COOKIES = {}
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "pt-br"}
-        self.assertEqual("pt-br", g(r))
+        request = self.rf.get("/", HTTP_ACCEPT_LANGUAGE="pt-br")
+        self.assertEqual("pt-br", g(request))
         with self.settings(LANGUAGES=[("en", "English")]):
-            self.assertNotEqual("pt-br", g(r))
+            self.assertNotEqual("pt-br", g(request))
 
     def test_i18n_patterns_returns_list(self):
         with override_settings(USE_I18N=False):
@@ -2175,8 +2137,22 @@ class UnprefixedDefaultLanguageTests(SimpleTestCase):
         response = self.client.get("/fr/simple/")
         self.assertEqual(response.content, b"Oui")
 
-    def test_unprefixed_language_other_than_accept_language(self):
+    def test_unprefixed_language_with_accept_language(self):
+        """'Accept-Language' is respected."""
         response = self.client.get("/simple/", HTTP_ACCEPT_LANGUAGE="fr")
+        self.assertRedirects(response, "/fr/simple/")
+
+    def test_unprefixed_language_with_cookie_language(self):
+        """A language set in the cookies is respected."""
+        self.client.cookies.load({settings.LANGUAGE_COOKIE_NAME: "fr"})
+        response = self.client.get("/simple/")
+        self.assertRedirects(response, "/fr/simple/")
+
+    def test_unprefixed_language_with_non_valid_language(self):
+        response = self.client.get("/simple/", HTTP_ACCEPT_LANGUAGE="fi")
+        self.assertEqual(response.content, b"Yes")
+        self.client.cookies.load({settings.LANGUAGE_COOKIE_NAME: "fi"})
+        response = self.client.get("/simple/")
         self.assertEqual(response.content, b"Yes")
 
     def test_page_with_dash(self):
@@ -2238,35 +2214,34 @@ class CountrySpecificLanguageTests(SimpleTestCase):
 
     def test_get_language_from_request(self):
         # issue 19919
-        r = self.rf.get("/")
-        r.COOKIES = {}
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "en-US,en;q=0.8,bg;q=0.6,ru;q=0.4"}
-        lang = get_language_from_request(r)
+        request = self.rf.get(
+            "/", HTTP_ACCEPT_LANGUAGE="en-US,en;q=0.8,bg;q=0.6,ru;q=0.4"
+        )
+        lang = get_language_from_request(request)
         self.assertEqual("en-us", lang)
-        r = self.rf.get("/")
-        r.COOKIES = {}
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "bg-bg,en-US;q=0.8,en;q=0.6,ru;q=0.4"}
-        lang = get_language_from_request(r)
+
+        request = self.rf.get(
+            "/", HTTP_ACCEPT_LANGUAGE="bg-bg,en-US;q=0.8,en;q=0.6,ru;q=0.4"
+        )
+        lang = get_language_from_request(request)
         self.assertEqual("bg", lang)
 
     def test_get_language_from_request_null(self):
         lang = trans_null.get_language_from_request(None)
-        self.assertEqual(lang, "en")
-        with override_settings(LANGUAGE_CODE="de"):
-            lang = trans_null.get_language_from_request(None)
-            self.assertEqual(lang, "de")
+        self.assertEqual(lang, None)
 
     def test_specific_language_codes(self):
         # issue 11915
-        r = self.rf.get("/")
-        r.COOKIES = {}
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "pt,en-US;q=0.8,en;q=0.6,ru;q=0.4"}
-        lang = get_language_from_request(r)
+        request = self.rf.get(
+            "/", HTTP_ACCEPT_LANGUAGE="pt,en-US;q=0.8,en;q=0.6,ru;q=0.4"
+        )
+        lang = get_language_from_request(request)
         self.assertEqual("pt-br", lang)
-        r = self.rf.get("/")
-        r.COOKIES = {}
-        r.META = {"HTTP_ACCEPT_LANGUAGE": "pt-pt,en-US;q=0.8,en;q=0.6,ru;q=0.4"}
-        lang = get_language_from_request(r)
+
+        request = self.rf.get(
+            "/", HTTP_ACCEPT_LANGUAGE="pt-pt,en-US;q=0.8,en;q=0.6,ru;q=0.4"
+        )
+        lang = get_language_from_request(request)
         self.assertEqual("pt-br", lang)
 
 

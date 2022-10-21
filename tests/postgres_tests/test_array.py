@@ -5,13 +5,19 @@ import unittest
 import uuid
 
 from django import forms
+from django.contrib.admin.utils import display_for_field
 from django.core import checks, exceptions, serializers, validators
 from django.core.exceptions import FieldError
 from django.core.management import call_command
 from django.db import IntegrityError, connection, models
 from django.db.models.expressions import Exists, OuterRef, RawSQL, Value
 from django.db.models.functions import Cast, JSONObject, Upper
-from django.test import TransactionTestCase, modify_settings, override_settings
+from django.test import (
+    TransactionTestCase,
+    modify_settings,
+    override_settings,
+    skipUnlessDBFeature,
+)
 from django.test.utils import isolate_apps
 from django.utils import timezone
 
@@ -403,6 +409,27 @@ class TestQuerying(PostgreSQLTestCase):
                     ).values_list("field__0", flat=True),
                     expected,
                 )
+
+    @skipUnlessDBFeature("allows_group_by_refs")
+    def test_group_by_order_by_aliases(self):
+        with self.assertNumQueries(1) as ctx:
+            self.assertSequenceEqual(
+                NullableIntegerArrayModel.objects.filter(
+                    field__0__isnull=False,
+                )
+                .values("field__0")
+                .annotate(arrayagg=ArrayAgg("id"))
+                .order_by("field__0"),
+                [
+                    {"field__0": 1, "arrayagg": [self.objs[0].pk]},
+                    {"field__0": 2, "arrayagg": [self.objs[1].pk, self.objs[2].pk]},
+                    {"field__0": 20, "arrayagg": [self.objs[3].pk]},
+                ],
+            )
+        alias = connection.ops.quote_name("field__0")
+        sql = ctx[0]["sql"]
+        self.assertIn(f"GROUP BY {alias}", sql)
+        self.assertIn(f"ORDER BY {alias}", sql)
 
     def test_index(self):
         self.assertSequenceEqual(
@@ -1366,3 +1393,39 @@ class TestSplitFormWidget(PostgreSQLWidgetTestCase):
             ),
             False,
         )
+
+
+class TestAdminUtils(PostgreSQLTestCase):
+    empty_value = "-empty-"
+
+    def test_array_display_for_field(self):
+        array_field = ArrayField(models.IntegerField())
+        display_value = display_for_field(
+            [1, 2],
+            array_field,
+            self.empty_value,
+        )
+        self.assertEqual(display_value, "1, 2")
+
+    def test_array_with_choices_display_for_field(self):
+        array_field = ArrayField(
+            models.IntegerField(),
+            choices=[
+                ([1, 2, 3], "1st choice"),
+                ([1, 2], "2nd choice"),
+            ],
+        )
+
+        display_value = display_for_field(
+            [1, 2],
+            array_field,
+            self.empty_value,
+        )
+        self.assertEqual(display_value, "2nd choice")
+
+        display_value = display_for_field(
+            [99, 99],
+            array_field,
+            self.empty_value,
+        )
+        self.assertEqual(display_value, self.empty_value)

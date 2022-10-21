@@ -17,15 +17,11 @@ from contextlib import contextmanager
 from importlib import import_module
 from io import StringIO
 
+import django
 from django.core.management import call_command
 from django.db import connections
 from django.test import SimpleTestCase, TestCase
-from django.test.utils import (
-    NullTimeKeeper,
-    TimeKeeper,
-    captured_stdout,
-    iter_test_cases,
-)
+from django.test.utils import NullTimeKeeper, TimeKeeper, iter_test_cases
 from django.test.utils import setup_databases as _setup_databases
 from django.test.utils import setup_test_environment
 from django.test.utils import teardown_databases as _teardown_databases
@@ -402,6 +398,7 @@ def _init_worker(
     serialized_contents=None,
     process_setup=None,
     process_setup_args=None,
+    debug_mode=None,
 ):
     """
     Switch to databases dedicated to this worker.
@@ -423,7 +420,8 @@ def _init_worker(
             if process_setup_args is None:
                 process_setup_args = ()
             process_setup(*process_setup_args)
-        setup_test_environment()
+        django.setup()
+        setup_test_environment(debug=debug_mode)
 
     for alias in connections:
         connection = connections[alias]
@@ -433,8 +431,6 @@ def _init_worker(
             if value := serialized_contents.get(alias):
                 connection._test_serialized_contents = value
         connection.creation.setup_worker_connection(_worker_id)
-        with captured_stdout():
-            call_command("check", databases=connections)
 
 
 def _run_subsuite(args):
@@ -448,6 +444,11 @@ def _run_subsuite(args):
     runner = runner_class(failfast=failfast, buffer=buffer)
     result = runner.run(subsuite)
     return subsuite_index, result.events
+
+
+def _process_setup_stub(*args):
+    """Stub method to simplify run() implementation."""
+    pass
 
 
 class ParallelTestSuite(unittest.TestSuite):
@@ -468,26 +469,22 @@ class ParallelTestSuite(unittest.TestSuite):
 
     # In case someone wants to modify these in a subclass.
     init_worker = _init_worker
+    process_setup = _process_setup_stub
     process_setup_args = ()
     run_subsuite = _run_subsuite
     runner_class = RemoteTestRunner
 
-    def __init__(self, subsuites, processes, failfast=False, buffer=False):
+    def __init__(
+        self, subsuites, processes, failfast=False, debug_mode=False, buffer=False
+    ):
         self.subsuites = subsuites
         self.processes = processes
         self.failfast = failfast
+        self.debug_mode = debug_mode
         self.buffer = buffer
         self.initial_settings = None
         self.serialized_contents = None
         super().__init__()
-
-    def process_setup(self, *args):
-        """
-        Stub method to simplify run() implementation. "self" is never actually
-        passed because a function implementing this method (__func__) is
-        always used, not the method itself.
-        """
-        pass
 
     def run(self, result):
         """
@@ -515,6 +512,7 @@ class ParallelTestSuite(unittest.TestSuite):
                 self.serialized_contents,
                 self.process_setup.__func__,
                 self.process_setup_args,
+                self.debug_mode,
             ],
         )
         args = [
@@ -940,6 +938,7 @@ class DiscoverRunner:
                     subsuites,
                     processes,
                     self.failfast,
+                    self.debug_mode,
                     self.buffer,
                 )
         return suite

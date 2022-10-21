@@ -552,14 +552,6 @@ class ReverseGenericManyToOneDescriptor(ReverseManyToOneDescriptor):
             self.rel,
         )
 
-    @cached_property
-    def related_manager_cache_key(self):
-        # By default, GenericRel instances will be marked as hidden unless
-        # related_query_name is given (their accessor name being "+" when
-        # hidden), which would cause multiple GenericRelations declared on a
-        # single model to collide, so always use the remote field's name.
-        return self.field.get_cache_name()
-
 
 def create_generic_related_manager(superclass, rel):
     """
@@ -627,17 +619,19 @@ def create_generic_related_manager(superclass, rel):
             queryset._add_hints(instance=instances[0])
             queryset = queryset.using(queryset._db or self._db)
             # Group instances by content types.
-            content_type_queries = (
-                models.Q(
-                    (f"{self.content_type_field_name}__pk", content_type_id),
-                    (f"{self.object_id_field_name}__in", {obj.pk for obj in objs}),
+            content_type_queries = [
+                models.Q.create(
+                    [
+                        (f"{self.content_type_field_name}__pk", content_type_id),
+                        (f"{self.object_id_field_name}__in", {obj.pk for obj in objs}),
+                    ]
                 )
                 for content_type_id, objs in itertools.groupby(
                     sorted(instances, key=lambda obj: self.get_content_type(obj).pk),
                     lambda obj: self.get_content_type(obj).pk,
                 )
-            )
-            query = models.Q(*content_type_queries, _connector=models.Q.OR)
+            ]
+            query = models.Q.create(content_type_queries, connector=models.Q.OR)
             # We (possibly) need to convert object IDs to the type of the
             # instances' PK in order to match up instances:
             object_id_converter = instances[0]._meta.pk.to_python
