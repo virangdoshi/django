@@ -1,4 +1,5 @@
 """Tests related to django.db.backends that haven't been organized."""
+
 import datetime
 import threading
 import unittest
@@ -224,6 +225,7 @@ class LongNameTest(TransactionTestCase):
         connection.ops.execute_sql_flush(sql_list)
 
 
+@skipUnlessDBFeature("supports_sequence_reset")
 class SequenceResetTest(TestCase):
     def test_generic_relation(self):
         "Sequence names are correct when resetting generic relations (Ref #13941)"
@@ -247,7 +249,6 @@ class SequenceResetTest(TestCase):
 # This test needs to run outside of a transaction, otherwise closing the
 # connection would implicitly rollback and cause problems during teardown.
 class ConnectionCreatedSignalTest(TransactionTestCase):
-
     available_apps = []
 
     # Unfortunately with sqlite3 the in-memory test database cannot be closed,
@@ -297,7 +298,6 @@ class EscapingChecksDebug(EscapingChecks):
 
 
 class BackendTestCase(TransactionTestCase):
-
     available_apps = ["backends"]
 
     def create_squares_with_executemany(self, args):
@@ -558,8 +558,9 @@ class BackendTestCase(TransactionTestCase):
                 "Limit for query logging exceeded, only the last 3 queries will be "
                 "returned."
             )
-            with self.assertWarnsMessage(UserWarning, msg):
+            with self.assertWarnsMessage(UserWarning, msg) as ctx:
                 self.assertEqual(3, len(new_connection.queries))
+            self.assertEqual(ctx.filename, __file__)
 
         finally:
             BaseDatabaseWrapper.queries_limit = old_queries_limit
@@ -597,7 +598,6 @@ class BackendTestCase(TransactionTestCase):
 # These tests aren't conditional because it would require differentiating
 # between MySQL+InnoDB and MySQL+MYISAM (something we currently can't do).
 class FkConstraintsTests(TransactionTestCase):
-
     available_apps = ["backends"]
 
     def setUp(self):
@@ -753,7 +753,6 @@ class FkConstraintsTests(TransactionTestCase):
 
 
 class ThreadTests(TransactionTestCase):
-
     available_apps = ["backends"]
 
     def test_default_connection_thread_local(self):
@@ -796,7 +795,8 @@ class ThreadTests(TransactionTestCase):
             # closed on teardown).
             for conn in connections_dict.values():
                 if conn is not connection and conn.allow_thread_sharing:
-                    conn.close()
+                    conn.validate_thread_sharing()
+                    conn._close()
                     conn.dec_thread_sharing()
 
     def test_connections_thread_local(self):

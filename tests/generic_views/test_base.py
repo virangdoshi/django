@@ -300,7 +300,6 @@ class ViewTest(SimpleTestCase):
 
 @override_settings(ROOT_URLCONF="generic_views.urls")
 class TemplateViewTest(SimpleTestCase):
-
     rf = RequestFactory()
 
     def _assert_about(self, response):
@@ -427,7 +426,6 @@ class TemplateViewTest(SimpleTestCase):
 
 @override_settings(ROOT_URLCONF="generic_views.urls")
 class RedirectViewTest(SimpleTestCase):
-
     rf = RequestFactory()
 
     def test_no_url(self):
@@ -609,8 +607,9 @@ class SingleObjectTemplateResponseMixinTest(SimpleTestCase):
         """
         view = views.TemplateResponseWithoutTemplate()
         msg = (
-            "TemplateResponseMixin requires either a definition of "
-            "'template_name' or an implementation of 'get_template_names()'"
+            "SingleObjectTemplateResponseMixin requires a definition "
+            "of 'template_name', 'template_name_field', or 'model'; "
+            "or an implementation of 'get_template_names()'."
         )
         with self.assertRaisesMessage(ImproperlyConfigured, msg):
             view.get_template_names()

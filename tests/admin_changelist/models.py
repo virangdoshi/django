@@ -1,5 +1,6 @@
 import uuid
 
+from django.contrib.auth.models import User
 from django.db import models
 
 
@@ -18,8 +19,20 @@ class Child(models.Model):
     age = models.IntegerField(null=True, blank=True)
 
 
+class GrandChild(models.Model):
+    parent = models.ForeignKey(Child, models.SET_NULL, editable=False, null=True)
+    name = models.CharField(max_length=30, blank=True)
+
+    def __str__(self):
+        return self.name
+
+    def __html__(self):
+        return f'<h2 class="main">{self.name}</h2>'
+
+
 class Genre(models.Model):
     name = models.CharField(max_length=20)
+    file = models.FileField(upload_to="documents/", blank=True, null=True)
 
 
 class Band(models.Model):
@@ -121,3 +134,8 @@ class CustomIdUser(models.Model):
 
 class CharPK(models.Model):
     char_pk = models.CharField(max_length=100, primary_key=True)
+
+
+class ProxyUser(User):
+    class Meta:
+        proxy = True

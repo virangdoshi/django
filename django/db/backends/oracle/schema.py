@@ -11,7 +11,6 @@ from django.utils.duration import duration_iso_string
 
 
 class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
-
     sql_create_column = "ALTER TABLE %(table)s ADD %(column)s %(definition)s"
     sql_alter_column_type = "MODIFY %(column)s %(type)s%(collation)s"
     sql_alter_column_null = "MODIFY %(column)s NULL"
@@ -33,7 +32,7 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
         elif isinstance(value, datetime.timedelta):
             return "'%s'" % duration_iso_string(value)
         elif isinstance(value, str):
-            return "'%s'" % value.replace("'", "''").replace("%", "%%")
+            return "'%s'" % value.replace("'", "''")
         elif isinstance(value, (bytes, bytearray, memoryview)):
             return "'%s'" % value.hex()
         elif isinstance(value, bool):
@@ -212,6 +211,8 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
         return create_index
 
     def _is_identity_column(self, table_name, column_name):
+        if not column_name:
+            return False
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """

@@ -37,7 +37,6 @@ def get_response_404(request):
 
 @override_settings(ROOT_URLCONF="middleware.urls")
 class CommonMiddlewareTest(SimpleTestCase):
-
     rf = RequestFactory()
 
     @override_settings(APPEND_SLASH=True)
@@ -108,11 +107,11 @@ class CommonMiddlewareTest(SimpleTestCase):
         self.assertEqual(resp.url, "/slash/?test=slash/")
 
     @override_settings(APPEND_SLASH=True, DEBUG=True)
-    def test_append_slash_no_redirect_on_POST_in_DEBUG(self):
+    def test_append_slash_no_redirect_in_DEBUG(self):
         """
         While in debug mode, an exception is raised with a warning
-        when a failed attempt is made to POST, PUT, or PATCH to an URL which
-        would normally be redirected to a slashed version.
+        when a failed attempt is made to DELETE, POST, PUT, or PATCH to an URL
+        which would normally be redirected to a slashed version.
         """
         msg = "maintaining %s data. Change your form to point to testserver/slash/"
         request = self.rf.get("/slash")
@@ -125,6 +124,9 @@ class CommonMiddlewareTest(SimpleTestCase):
             CommonMiddleware(get_response_404)(request)
         request = self.rf.get("/slash")
         request.method = "PATCH"
+        with self.assertRaisesMessage(RuntimeError, msg % request.method):
+            CommonMiddleware(get_response_404)(request)
+        request = self.rf.delete("/slash")
         with self.assertRaisesMessage(RuntimeError, msg % request.method):
             CommonMiddleware(get_response_404)(request)
 
@@ -390,7 +392,6 @@ class CommonMiddlewareTest(SimpleTestCase):
     MANAGERS=[("PHD", "PHB@dilbert.com")],
 )
 class BrokenLinkEmailsMiddlewareTest(SimpleTestCase):
-
     rf = RequestFactory()
 
     def setUp(self):
@@ -690,7 +691,7 @@ class ConditionalGetMiddlewareTest(SimpleTestCase):
 
         response = ConditionalGetMiddleware(self.get_response)(self.req)
         etag = response.headers["ETag"]
-        put_request = self.request_factory.put("/", HTTP_IF_MATCH=etag)
+        put_request = self.request_factory.put("/", headers={"if-match": etag})
         conditional_get_response = ConditionalGetMiddleware(get_200_response)(
             put_request
         )
@@ -853,9 +854,9 @@ class GZipMiddlewareTest(SimpleTestCase):
     def setUp(self):
         self.req = self.request_factory.get("/")
         self.req.META["HTTP_ACCEPT_ENCODING"] = "gzip, deflate"
-        self.req.META[
-            "HTTP_USER_AGENT"
-        ] = "Mozilla/5.0 (Windows NT 5.1; rv:9.0.1) Gecko/20100101 Firefox/9.0.1"
+        self.req.META["HTTP_USER_AGENT"] = (
+            "Mozilla/5.0 (Windows NT 5.1; rv:9.0.1) Gecko/20100101 Firefox/9.0.1"
+        )
         self.resp = HttpResponse()
         self.resp.status_code = 200
         self.resp.content = self.compressible_string
@@ -1061,7 +1062,7 @@ class ETagGZipMiddlewareTest(SimpleTestCase):
             response.headers["ETag"] = '"eggs"'
             return response
 
-        request = self.rf.get("/", HTTP_ACCEPT_ENCODING="gzip, deflate")
+        request = self.rf.get("/", headers={"accept-encoding": "gzip, deflate"})
         gzip_response = GZipMiddleware(get_response)(request)
         self.assertEqual(gzip_response.headers["ETag"], 'W/"eggs"')
 
@@ -1075,7 +1076,7 @@ class ETagGZipMiddlewareTest(SimpleTestCase):
             response.headers["ETag"] = 'W/"eggs"'
             return response
 
-        request = self.rf.get("/", HTTP_ACCEPT_ENCODING="gzip, deflate")
+        request = self.rf.get("/", headers={"accept-encoding": "gzip, deflate"})
         gzip_response = GZipMiddleware(get_response)(request)
         self.assertEqual(gzip_response.headers["ETag"], 'W/"eggs"')
 
@@ -1090,11 +1091,12 @@ class ETagGZipMiddlewareTest(SimpleTestCase):
         def get_cond_response(req):
             return ConditionalGetMiddleware(get_response)(req)
 
-        request = self.rf.get("/", HTTP_ACCEPT_ENCODING="gzip, deflate")
+        request = self.rf.get("/", headers={"accept-encoding": "gzip, deflate"})
         response = GZipMiddleware(get_cond_response)(request)
         gzip_etag = response.headers["ETag"]
         next_request = self.rf.get(
-            "/", HTTP_ACCEPT_ENCODING="gzip, deflate", HTTP_IF_NONE_MATCH=gzip_etag
+            "/",
+            headers={"accept-encoding": "gzip, deflate", "if-none-match": gzip_etag},
         )
         next_response = ConditionalGetMiddleware(get_response)(next_request)
         self.assertEqual(next_response.status_code, 304)

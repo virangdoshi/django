@@ -3,7 +3,6 @@ import pickle
 import sys
 import unittest
 from operator import attrgetter
-from threading import Lock
 
 from django.core.exceptions import EmptyResultSet, FieldError, FullResultSet
 from django.db import DEFAULT_DB_ALIAS, connection
@@ -13,8 +12,7 @@ from django.db.models.functions import ExtractYear, Length, LTrim
 from django.db.models.sql.constants import LOUTER
 from django.db.models.sql.where import AND, OR, NothingNode, WhereNode
 from django.test import SimpleTestCase, TestCase, skipUnlessDBFeature
-from django.test.utils import CaptureQueriesContext, ignore_warnings, register_lookup
-from django.utils.deprecation import RemovedInDjango50Warning
+from django.test.utils import CaptureQueriesContext, register_lookup
 
 from .models import (
     FK1,
@@ -112,6 +110,11 @@ from .models import (
     Valid,
     X,
 )
+
+
+class UnpickleableError(Exception):
+    def __reduce__(self):
+        raise type(self)("Cannot pickle.")
 
 
 class Queries1Tests(TestCase):
@@ -1354,6 +1357,35 @@ class Queries1Tests(TestCase):
         )
         self.assertSequenceEqual(Note.objects.exclude(negate=True), [self.n3])
 
+    def test_combining_does_not_mutate(self):
+        all_authors = Author.objects.all()
+        authors_with_report = Author.objects.filter(
+            Exists(Report.objects.filter(creator__pk=OuterRef("id")))
+        )
+        authors_without_report = all_authors.exclude(pk__in=authors_with_report)
+        items_before = Item.objects.filter(creator__in=authors_without_report)
+        self.assertCountEqual(items_before, [self.i2, self.i3, self.i4])
+        # Combining querysets doesn't mutate them.
+        all_authors | authors_with_report
+        all_authors & authors_with_report
+
+        authors_without_report = all_authors.exclude(pk__in=authors_with_report)
+        items_after = Item.objects.filter(creator__in=authors_without_report)
+
+        self.assertCountEqual(items_after, [self.i2, self.i3, self.i4])
+        self.assertCountEqual(items_before, items_after)
+
+    @skipUnlessDBFeature("supports_select_union")
+    def test_union_values_subquery(self):
+        items = Item.objects.filter(creator=OuterRef("pk"))
+        item_authors = Author.objects.annotate(is_creator=Exists(items)).order_by()
+        reports = Report.objects.filter(creator=OuterRef("pk"))
+        report_authors = Author.objects.annotate(is_creator=Exists(reports)).order_by()
+        all_authors = item_authors.union(report_authors).order_by("is_creator")
+        self.assertEqual(
+            list(all_authors.values_list("is_creator", flat=True)), [False, True]
+        )
+
 
 class Queries2Tests(TestCase):
     @classmethod
@@ -1956,16 +1988,13 @@ class Queries5Tests(TestCase):
         self.assertEqual(authors.count(), 1)
 
     def test_filter_unsaved_object(self):
-        # These tests will catch ValueError in Django 5.0 when passing unsaved
-        # model instances to related filters becomes forbidden.
-        # msg = "Model instances passed to related filters must be saved."
-        msg = "Passing unsaved model instances to related filters is deprecated."
+        msg = "Model instances passed to related filters must be saved."
         company = Company.objects.create(name="Django")
-        with self.assertWarnsMessage(RemovedInDjango50Warning, msg):
+        with self.assertRaisesMessage(ValueError, msg):
             Employment.objects.filter(employer=Company(name="unsaved"))
-        with self.assertWarnsMessage(RemovedInDjango50Warning, msg):
+        with self.assertRaisesMessage(ValueError, msg):
             Employment.objects.filter(employer__in=[company, Company(name="unsaved")])
-        with self.assertWarnsMessage(RemovedInDjango50Warning, msg):
+        with self.assertRaisesMessage(ValueError, msg):
             StaffUser.objects.filter(staff=Staff(name="unsaved"))
 
 
@@ -2182,7 +2211,7 @@ class Queries6Tests(TestCase):
                 {"tag_per_parent__max": 2},
             )
         sql = captured_queries[0]["sql"]
-        self.assertIn("AS %s" % connection.ops.quote_name("col1"), sql)
+        self.assertIn("AS %s" % connection.ops.quote_name("parent"), sql)
 
     def test_xor_subquery(self):
         self.assertSequenceEqual(
@@ -2377,18 +2406,18 @@ class SubqueryTests(TestCase):
         """
         query = DumbCategory.objects.filter(
             id__in=DumbCategory.objects.order_by("-id")[0:2]
-        )[0:2]
-        self.assertEqual({x.id for x in query}, {3, 4})
+        ).order_by("id")[0:2]
+        self.assertSequenceEqual([x.id for x in query], [3, 4])
 
         query = DumbCategory.objects.filter(
             id__in=DumbCategory.objects.order_by("-id")[1:3]
-        )[1:3]
-        self.assertEqual({x.id for x in query}, {3})
+        ).order_by("id")[1:3]
+        self.assertSequenceEqual([x.id for x in query], [3])
 
         query = DumbCategory.objects.filter(
             id__in=DumbCategory.objects.order_by("-id")[2:]
-        )[1:]
-        self.assertEqual({x.id for x in query}, {2})
+        ).order_by("id")[1:]
+        self.assertSequenceEqual([x.id for x in query], [2])
 
     def test_related_sliced_subquery(self):
         """
@@ -2575,8 +2604,8 @@ class CloneTests(TestCase):
         # Evaluate the Note queryset, populating the query cache
         list(n_list)
         # Make one of cached results unpickable.
-        n_list._result_cache[0].lock = Lock()
-        with self.assertRaises(TypeError):
+        n_list._result_cache[0].error = UnpickleableError()
+        with self.assertRaises(UnpickleableError):
             pickle.dumps(n_list)
         # Use the note queryset in a query, and evaluate
         # that query in a way that involves cloning.
@@ -3235,7 +3264,7 @@ class ExcludeTests(TestCase):
             [self.r2],
         )
 
-    def test_ticket14511(self):
+    def test_exclude_m2m_through(self):
         alex = Person.objects.get_or_create(name="Alex")[0]
         jane = Person.objects.get_or_create(name="Jane")[0]
 
@@ -3271,7 +3300,16 @@ class ExcludeTests(TestCase):
             .distinct()
             .order_by("name")
         )
-        self.assertSequenceEqual(alex_nontech_employers, [google, intel, microsoft])
+        with self.assertNumQueries(1) as ctx:
+            self.assertSequenceEqual(alex_nontech_employers, [google, intel, microsoft])
+        sql = ctx.captured_queries[0]["sql"]
+        # Company's ID should appear in SELECT and INNER JOIN, not in EXISTS as
+        # the outer query reference is not necessary when an alias is reused.
+        company_id = "%s.%s" % (
+            connection.ops.quote_name(Company._meta.db_table),
+            connection.ops.quote_name(Company._meta.get_field("id").column),
+        )
+        self.assertEqual(sql.count(company_id), 2)
 
     def test_exclude_reverse_fk_field_ref(self):
         tag = Tag.objects.create()
@@ -3327,28 +3365,14 @@ class ExcludeTests(TestCase):
             [self.j1, self.j2],
         )
 
-    @ignore_warnings(category=RemovedInDjango50Warning)
-    def test_exclude_unsaved_o2o_object(self):
-        jack = Staff.objects.create(name="jack")
-        jack_staff = StaffUser.objects.create(staff=jack)
-        unsaved_object = Staff(name="jane")
-
-        self.assertIsNone(unsaved_object.pk)
-        self.assertSequenceEqual(
-            StaffUser.objects.exclude(staff=unsaved_object), [jack_staff]
-        )
-
     def test_exclude_unsaved_object(self):
-        # These tests will catch ValueError in Django 5.0 when passing unsaved
-        # model instances to related filters becomes forbidden.
-        # msg = "Model instances passed to related filters must be saved."
         company = Company.objects.create(name="Django")
-        msg = "Passing unsaved model instances to related filters is deprecated."
-        with self.assertWarnsMessage(RemovedInDjango50Warning, msg):
+        msg = "Model instances passed to related filters must be saved."
+        with self.assertRaisesMessage(ValueError, msg):
             Employment.objects.exclude(employer=Company(name="unsaved"))
-        with self.assertWarnsMessage(RemovedInDjango50Warning, msg):
+        with self.assertRaisesMessage(ValueError, msg):
             Employment.objects.exclude(employer__in=[company, Company(name="unsaved")])
-        with self.assertWarnsMessage(RemovedInDjango50Warning, msg):
+        with self.assertRaisesMessage(ValueError, msg):
             StaffUser.objects.exclude(staff=Staff(name="unsaved"))
 
 
