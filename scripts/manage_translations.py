@@ -25,11 +25,10 @@ from configparser import ConfigParser
 from datetime import datetime
 from subprocess import run
 
-import requests
-
 import django
 from django.conf import settings
 from django.core.management import call_command
+from security import safe_requests
 
 HAVE_JS = ["admin"]
 LANG_OVERRIDES = {
@@ -57,7 +56,7 @@ def list_resources_with_updates(date_since, date_skip=None, verbose=False):
     resources_url = base_url + "/resources"
     resource_stats_url = base_url + "/resource_language_stats"
 
-    response = requests.get(resources_url, headers=headers, params=base_params)
+    response = safe_requests.get(resources_url, headers=headers, params=base_params)
     assert response.ok, response.content
     data = response.json()["data"]
 
@@ -68,7 +67,7 @@ def list_resources_with_updates(date_since, date_skip=None, verbose=False):
         resource_name = item["attributes"]["name"]
         params = base_params.copy()
         params.update({"filter[resource]": resource_id})
-        stats = requests.get(resource_stats_url, headers=headers, params=params)
+        stats = safe_requests.get(resource_stats_url, headers=headers, params=params)
         stats_data = stats.json()["data"]
         for lang_data in stats_data:
             lang_id = lang_data["id"].split(":")[-1]
