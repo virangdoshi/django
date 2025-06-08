@@ -30,6 +30,7 @@ import requests
 import django
 from django.conf import settings
 from django.core.management import call_command
+from security import safe_command
 
 HAVE_JS = ["admin"]
 LANG_OVERRIDES = {
@@ -150,8 +151,7 @@ def _check_diff(cat_name, base_path):
         "path": base_path,
         "ext": "js" if cat_name.endswith("-js") else "",
     }
-    p = run(
-        "git diff -U0 %s | egrep '^[-+]msgid' | wc -l" % po_path,
+    p = safe_command.run(run, "git diff -U0 %s | egrep '^[-+]msgid' | wc -l" % po_path,
         capture_output=True,
         shell=True,
     )
@@ -235,13 +235,13 @@ def fetch(resources=None, languages=None):
         ]
         # Transifex pull
         if languages is None:
-            run(cmd + ["--all"])
+            safe_command.run(run, cmd + ["--all"])
             target_langs = sorted(
                 d for d in os.listdir(dir_) if not d.startswith("_") and d != "en"
             )
         else:
             for lang in languages:
-                run(cmd + ["-l", lang])
+                safe_command.run(run, cmd + ["-l", lang])
             target_langs = languages
 
         target_langs = [LANG_OVERRIDES.get(d, d) for d in target_langs]
