@@ -11,6 +11,7 @@ from hashlib import md5
 from django.core.cache.backends.base import DEFAULT_TIMEOUT, BaseCache
 from django.core.files import locks
 from django.core.files.move import file_move_safe
+import fickling
 
 
 class FileBasedCache(BaseCache):
@@ -150,7 +151,7 @@ class FileBasedCache(BaseCache):
         Take an open cache file `f` and delete it if it's expired.
         """
         try:
-            exp = pickle.load(f)
+            exp = fickling.load(f)
         except EOFError:
             exp = 0  # An empty file is considered expired.
         if exp is not None and exp < time.time():
